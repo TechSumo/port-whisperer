@@ -82,11 +82,25 @@ Detailed view: full process tree, repository path, current git branch, memory us
 ```bash
 ports kill 3000                # kill by port
 ports kill 3000 5173 8080      # kill multiple
+ports kill 3000-3010           # kill a port range
 ports kill 42872               # kill by PID
 ports kill -f 3000             # force kill (SIGKILL)
 ```
 
 Resolves port to process automatically. Falls back to PID if no listener matches. Use `-f` when a process won't die gracefully.
+
+Port ranges expand into individual kills -- empty ports are silently skipped and shown as a summary:
+
+```
+$ ports kill 3000-3005
+
+  Killing :3000 — node (PID 42872)
+  ✓ Sent SIGTERM to :3000 — node (PID 42872)
+  Killing :3001 — node (PID 95380)
+  ✓ Sent SIGTERM to :3001 — node (PID 95380)
+
+  Range summary: 2 killed, 4 empty
+```
 
 ### Show all dev processes
 
@@ -153,8 +167,8 @@ Framework detection reads `package.json` dependencies and inspects process comma
 | Platform | Status |
 |----------|--------|
 | macOS    | Supported |
-| Linux    | Planned |
-| Windows  | Not planned |
+| Linux    | Supported |
+| Windows  | Supported |
 
 ## License
 
