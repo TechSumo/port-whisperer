@@ -312,6 +312,80 @@ async function main() {
       break;
     }
 
+    case "serve": {
+      const serveArgs = filteredArgs.slice(1);
+      let port = 7777;
+      let open = false;
+      for (let i = 0; i < serveArgs.length; i++) {
+        const a = serveArgs[i];
+        if (a === "--open") {
+          open = true;
+        } else if (a === "--port" || a === "-p") {
+          const next = serveArgs[i + 1];
+          const parsed = parseInt(next, 10);
+          if (isNaN(parsed) || parsed < 1 || parsed > 65535) {
+            console.log(chalk.red(`\n  ✕ --port requires a number 1-65535\n`));
+            process.exit(1);
+          }
+          port = parsed;
+          i++;
+        } else {
+          console.log(chalk.red(`\n  ✕ Unknown flag: ${a}\n`));
+          process.exit(1);
+        }
+      }
+
+      const { start } = await import("./server/index.js");
+      let handle;
+      try {
+        handle = await start({ port });
+      } catch (err) {
+        if (err.code === "EADDRINUSE") {
+          console.log(
+            chalk.red(`\n  ✕ Port ${port} is already in use.`) +
+              chalk.gray(` Try: ports serve --port ${port + 1}\n`),
+          );
+          process.exit(1);
+        }
+        throw err;
+      }
+
+      console.log();
+      console.log(
+        chalk.cyan.bold("  Port Whisperer") + chalk.gray(" — web dashboard"),
+      );
+      console.log(`  ${chalk.gray("Listening on")} ${chalk.white.bold(handle.url)}`);
+      console.log(chalk.gray("  Press Ctrl+C to stop\n"));
+
+      if (open) {
+        const opener =
+          process.platform === "darwin"
+            ? "open"
+            : process.platform === "win32"
+              ? "start"
+              : "xdg-open";
+        try {
+          const { spawn } = await import("node:child_process");
+          spawn(opener, [handle.url], { detached: true, stdio: "ignore" }).unref();
+        } catch {}
+      }
+
+      // Graceful shutdown on Ctrl+C — 2-second grace window per spec FR-4.
+      let shuttingDown = false;
+      const shutdown = async () => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        console.log(chalk.gray("\n  Shutting down..."));
+        const timeout = new Promise((resolve) => setTimeout(resolve, 2000));
+        await Promise.race([handle.close(), timeout]);
+        console.log(chalk.gray("  Stopped.\n"));
+        process.exit(0);
+      };
+      process.on("SIGINT", shutdown);
+      process.on("SIGTERM", shutdown);
+      break;
+    }
+
     case "watch": {
       displayWatchHeader();
       const interval = watchPorts((type, info) => {
@@ -360,6 +434,9 @@ async function main() {
       );
       console.log(
         `    ${chalk.cyan("ports watch")}        Monitor port changes in real-time`,
+      );
+      console.log(
+        `    ${chalk.cyan("ports serve")}        Launch web dashboard (default :7777, --open to open browser)`,
       );
       console.log(
         `    ${chalk.cyan("whoisonport <num>")} Alias for ports <number>`,
