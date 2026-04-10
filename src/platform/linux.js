@@ -102,12 +102,18 @@ export function batchProcessInfo(pids) {
   const map = new Map();
   if (pids.length === 0) return map;
 
-  // Use ps for batch info — works reliably on Linux
+  // Use ps for batch info — works reliably on Linux.
+  // LC_ALL=C forces `ps lstart` to emit English "Fri Apr 10 …"; other
+  // locales reorder day/month and break the regex below (and new Date()).
   try {
     const pidList = pids.join(",");
     const raw = execSync(
       `ps -p ${pidList} -o pid=,ppid=,stat=,rss=,lstart=,command= 2>/dev/null`,
-      { encoding: "utf8", timeout: 5000 },
+      {
+        encoding: "utf8",
+        timeout: 5000,
+        env: { ...process.env, LC_ALL: "C" },
+      },
     ).trim();
 
     for (const line of raw.split("\n")) {
@@ -189,10 +195,12 @@ export function batchCwd(pids) {
 
 export function getAllProcessesRaw() {
   let raw;
+  // LC_ALL=C — same reason as batchProcessInfo above.
   try {
     raw = execSync("ps -eo pid=,pcpu=,pmem=,rss=,lstart=,cmd= 2>/dev/null", {
       encoding: "utf8",
       timeout: 5000,
+      env: { ...process.env, LC_ALL: "C" },
     }).trim();
   } catch {
     return [];
