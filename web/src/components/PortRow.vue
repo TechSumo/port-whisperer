@@ -26,6 +26,7 @@ function onRestart(): void {
 }
 function onClick(): void {
   store.focusPort(props.port.port);
+  void store.openDetail(props.port.port);
 }
 </script>
 
@@ -63,7 +64,7 @@ function onClick(): void {
         title="Restart"
         aria-label="Restart process"
         class="border border-transparent px-1.5 py-1 text-fg-subtle transition-colors duration-150 hover:border-accent/50 hover:text-accent"
-        @click="onRestart"
+        @click.stop="onRestart"
       >
         <svg
           viewBox="0 0 16 16"
@@ -86,7 +87,7 @@ function onClick(): void {
         title="Kill"
         aria-label="Kill process"
         class="border border-transparent px-1.5 py-1 text-fg-subtle transition-colors duration-150 hover:border-zombie/60 hover:text-zombie"
-        @click="onKill"
+        @click.stop="onKill"
       >
         <svg
           viewBox="0 0 16 16"

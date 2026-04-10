@@ -103,7 +103,7 @@ function onProbe(): void {
     title="Probe this port over HTTP to identify the framework"
     aria-label="Probe framework"
     class="inline-flex items-center gap-1 border border-border px-2 py-0.5 text-[11px] uppercase tracking-[0.1em] text-fg-subtle transition-colors duration-150 hover:border-accent/60 hover:text-accent"
-    @click="onProbe"
+    @click.stop="onProbe"
   >
     <span class="font-bold">?</span>
     probe

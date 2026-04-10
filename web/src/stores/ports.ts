@@ -63,6 +63,16 @@ export const usePortsStore = defineStore("ports", () => {
   // first row". Keyed by port number so SSE updates don't blow it away.
   const focusedPort = ref<number | null>(null);
 
+  // Detail slide-over panel. Port is the live selection; the extras
+  // (process tree + git branch) come from a one-shot GET /api/ports/:n
+  // since the SSE stream does not carry those fields.
+  const detailPort = ref<number | null>(null);
+  const detailExtras = ref<{
+    gitBranch: string | null;
+    processTree: { pid: number; ppid: number; name: string }[];
+  } | null>(null);
+  const detailLoading = ref(false);
+
   // New-port flash tracking — ports that just appeared live.
   // Consumed by PortRow to apply the flash animation for ~2s.
   const recentlyNew = ref<Set<number>>(new Set());
@@ -365,6 +375,35 @@ export const usePortsStore = defineStore("ports", () => {
     return hit ?? null;
   }
 
+  // --- detail slide-over (phase 9b)
+
+  async function openDetail(port: number): Promise<void> {
+    detailPort.value = port;
+    detailExtras.value = null;
+    detailLoading.value = true;
+    try {
+      const res = await fetch(`/api/ports/${port}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as PortInfo;
+      detailExtras.value = {
+        gitBranch: body.gitBranch ?? null,
+        processTree: body.processTree ?? [],
+      };
+    } catch (e) {
+      // Not a toast-worthy error; the panel will just lack extras.
+      console.error("[ports store] detail fetch failed:", e);
+      detailExtras.value = { gitBranch: null, processTree: [] };
+    } finally {
+      detailLoading.value = false;
+    }
+  }
+
+  function closeDetail(): void {
+    detailPort.value = null;
+    detailExtras.value = null;
+    detailLoading.value = false;
+  }
+
   // --- public start / stop
 
   function start(): void {
@@ -453,6 +492,9 @@ export const usePortsStore = defineStore("ports", () => {
     probedFrameworks: readonly(probedFrameworks),
     probing: readonly(probing),
     focusedPort: readonly(focusedPort),
+    detailPort: readonly(detailPort),
+    detailExtras: readonly(detailExtras),
+    detailLoading: readonly(detailLoading),
 
     // filter state (writable)
     searchQuery,
@@ -478,5 +520,7 @@ export const usePortsStore = defineStore("ports", () => {
     focusNext,
     focusPrev,
     focusedPortInfo,
+    openDetail,
+    closeDetail,
   };
 });

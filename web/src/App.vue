@@ -7,6 +7,7 @@ import PortTable from "@/components/PortTable.vue";
 import ProcessTable from "@/components/ProcessTable.vue";
 import KillConfirm from "@/components/KillConfirm.vue";
 import Toasts from "@/components/Toasts.vue";
+import DetailPanel from "@/components/DetailPanel.vue";
 
 type View = "ports" | "processes";
 
@@ -46,10 +47,14 @@ function onKeydown(e: KeyboardEvent): void {
     return;
   }
 
-  // Esc clears filters + blurs row focus when no modal is open.
+  // Esc has layered precedence: input blur > detail close > clear+blur.
   if (e.key === "Escape") {
     if (isEditable(e.target)) {
       (e.target as HTMLElement).blur();
+      return;
+    }
+    if (store.detailPort !== null) {
+      store.closeDetail();
       return;
     }
     store.clearFilters();
@@ -86,6 +91,11 @@ function onKeydown(e: KeyboardEvent): void {
     store.requestRestart(focused);
     return;
   }
+  if (e.key === "d" || e.key === "D") {
+    e.preventDefault();
+    void store.openDetail(focused.port);
+    return;
+  }
 }
 
 onMounted(() => {
@@ -109,6 +119,7 @@ onUnmounted(() => {
       </div>
     </main>
     <KillConfirm />
+    <DetailPanel />
     <Toasts />
   </div>
 </template>
