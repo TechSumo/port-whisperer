@@ -25,6 +25,7 @@ import {
 import { subscribe as subscribeSSE } from "./sse.js";
 import { killAction, restartAction } from "./actions.js";
 import { detectViaHttpProbe } from "./detect.js";
+import { loadSettings, saveSettings } from "./settings.js";
 
 // Absolute path to the built Vue SPA output.
 // Repo layout: src/server/index.js  →  web/dist/
@@ -184,8 +185,42 @@ export function buildApp(port) {
     const result = await detectViaHttpProbe({ port, pid });
     return c.json({ ok: true, port, ...result });
   });
-  app.get("/api/settings", (c) => c.json({ stub: "phase 6" }));
-  app.put("/api/settings", (c) => c.json({ stub: "phase 6" }));
+  // Phase 6 — settings persistence.
+  app.get("/api/settings", (c) => {
+    try {
+      return c.json(loadSettings());
+    } catch (err) {
+      return c.json(
+        {
+          error: err instanceof Error ? err.message : String(err),
+        },
+        500,
+      );
+    }
+  });
+
+  app.put("/api/settings", async (c) => {
+    let body;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "invalid JSON body" }, 400);
+    }
+    if (!body || typeof body !== "object") {
+      return c.json({ error: "body must be a JSON object" }, 400);
+    }
+    try {
+      const merged = saveSettings(body);
+      return c.json(merged);
+    } catch (err) {
+      return c.json(
+        {
+          error: err instanceof Error ? err.message : String(err),
+        },
+        500,
+      );
+    }
+  });
 
   // Static SPA — everything that isn't an API route falls through to here.
   // If web/dist doesn't exist yet (e.g. developer forgot `npm run web:build`),

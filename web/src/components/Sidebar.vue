@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { usePortsStore } from "@/stores/ports";
 
 type View = "ports" | "processes";
@@ -25,6 +25,34 @@ const selected = computed(() => store.selectedFrameworks);
 
 function isSelected(name: string): boolean {
   return (selected.value as ReadonlySet<string>).has(name);
+}
+
+// Preset management (phase 6)
+const presetNames = computed<string[]>(() =>
+  Object.keys(store.settings.presets).sort((a, b) => a.localeCompare(b)),
+);
+const hasActiveFilters = computed<boolean>(() => {
+  return (
+    store.searchQuery.trim().length > 0 ||
+    (store.selectedFrameworks as ReadonlySet<string>).size > 0
+  );
+});
+const newPresetName = ref("");
+
+async function onSavePreset(): Promise<void> {
+  const name = newPresetName.value.trim();
+  if (!name) return;
+  await store.savePreset(name);
+  newPresetName.value = "";
+}
+
+function onApplyPreset(name: string): void {
+  store.applyPreset(name);
+}
+
+async function onDeletePreset(name: string, e: MouseEvent): Promise<void> {
+  e.stopPropagation();
+  await store.deletePreset(name);
 }
 </script>
 
@@ -102,7 +130,7 @@ function isSelected(name: string): boolean {
       </div>
 
       <!-- Framework chips -->
-      <div v-if="frameworks.length > 0">
+      <div v-if="frameworks.length > 0" class="mb-5">
         <p class="mb-2 text-[11px] uppercase tracking-[0.18em] text-fg-subtle">
           Framework
         </p>
@@ -122,6 +150,57 @@ function isSelected(name: string): boolean {
             {{ fw }}
           </button>
         </div>
+      </div>
+
+      <!-- Presets -->
+      <div>
+        <p class="mb-2 text-[11px] uppercase tracking-[0.18em] text-fg-subtle">
+          Presets
+        </p>
+
+        <ul v-if="presetNames.length > 0" class="mb-3 space-y-0.5">
+          <li v-for="name in presetNames" :key="name">
+            <button
+              type="button"
+              class="group flex w-full items-center justify-between border border-border px-2.5 py-1.5 text-left text-[12px] text-fg-muted transition-colors duration-150 hover:border-accent/60 hover:text-accent"
+              @click="onApplyPreset(name)"
+            >
+              <span class="truncate">{{ name }}</span>
+              <span
+                class="ml-2 text-fg-subtle opacity-60 hover:text-zombie hover:opacity-100"
+                title="delete preset"
+                @click="onDeletePreset(name, $event)"
+              >
+                ×
+              </span>
+            </button>
+          </li>
+        </ul>
+
+        <form
+          v-if="hasActiveFilters"
+          class="flex items-center gap-1.5"
+          @submit.prevent="onSavePreset"
+        >
+          <input
+            v-model="newPresetName"
+            type="text"
+            placeholder="preset name"
+            class="flex-1 border border-border bg-bg-elevated px-2 py-1 text-[12px] text-fg placeholder:text-fg-subtle focus:border-accent/60 focus:outline-none"
+          />
+          <button
+            type="submit"
+            class="border border-accent/50 bg-accent/10 px-2 py-1 text-[11px] uppercase tracking-[0.1em] text-accent hover:bg-accent/20"
+          >
+            save
+          </button>
+        </form>
+        <p
+          v-else-if="presetNames.length === 0"
+          class="text-[11px] leading-relaxed text-fg-subtle"
+        >
+          apply a filter to save it as a preset
+        </p>
       </div>
     </div>
 

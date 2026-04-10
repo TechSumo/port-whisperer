@@ -30,6 +30,16 @@ export interface Toast {
   message: string;
 }
 
+export interface FilterPreset {
+  searchQuery: string;
+  selectedFrameworks: string[];
+}
+
+export interface Settings {
+  theme: string;
+  presets: Record<string, FilterPreset>;
+}
+
 export const usePortsStore = defineStore("ports", () => {
   // --- state
   const ports = ref<PortInfo[]>([]);
@@ -62,6 +72,10 @@ export const usePortsStore = defineStore("ports", () => {
   // action shortcuts. Null means "no focus; first action selects the
   // first row". Keyed by port number so SSE updates don't blow it away.
   const focusedPort = ref<number | null>(null);
+
+  // Persisted settings (theme, filter presets) loaded from the
+  // backend on startup and written back via PUT /api/settings.
+  const settings = ref<Settings>({ theme: "dark", presets: {} });
 
   // Detail slide-over panel. Port is the live selection; the extras
   // (process tree + git branch) come from a one-shot GET /api/ports/:n
@@ -404,9 +418,78 @@ export const usePortsStore = defineStore("ports", () => {
     detailLoading.value = false;
   }
 
+  // --- settings + filter presets (phase 6)
+
+  async function loadSettingsFromServer(): Promise<void> {
+    try {
+      const res = await fetch("/api/settings");
+      if (!res.ok) return;
+      const body = (await res.json()) as Partial<Settings>;
+      settings.value = {
+        theme: body.theme ?? "dark",
+        presets: body.presets ?? {},
+      };
+    } catch (e) {
+      // Non-fatal — UI works fine with in-memory defaults.
+      console.warn("[ports store] settings fetch failed:", e);
+    }
+  }
+
+  async function persistSettings(patch: Partial<Settings>): Promise<boolean> {
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        pushToast("error", "settings save failed");
+        return false;
+      }
+      const body = (await res.json()) as Settings;
+      settings.value = body;
+      return true;
+    } catch (e) {
+      pushToast(
+        "error",
+        `settings save failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return false;
+    }
+  }
+
+  async function savePreset(name: string): Promise<void> {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const preset: FilterPreset = {
+      searchQuery: searchQuery.value,
+      selectedFrameworks: [
+        ...(selectedFrameworks.value as ReadonlySet<string>),
+      ],
+    };
+    const nextPresets = { ...settings.value.presets, [trimmed]: preset };
+    const ok = await persistSettings({ presets: nextPresets });
+    if (ok) pushToast("success", `saved preset "${trimmed}"`);
+  }
+
+  async function deletePreset(name: string): Promise<void> {
+    const nextPresets = { ...settings.value.presets };
+    delete nextPresets[name];
+    const ok = await persistSettings({ presets: nextPresets });
+    if (ok) pushToast("success", `deleted preset "${name}"`);
+  }
+
+  function applyPreset(name: string): void {
+    const preset = settings.value.presets[name];
+    if (!preset) return;
+    searchQuery.value = preset.searchQuery;
+    selectedFrameworks.value = new Set(preset.selectedFrameworks);
+  }
+
   // --- public start / stop
 
   function start(): void {
+    void loadSettingsFromServer();
     openEventStream();
     startProcessPolling();
   }
@@ -495,6 +578,7 @@ export const usePortsStore = defineStore("ports", () => {
     detailPort: readonly(detailPort),
     detailExtras: readonly(detailExtras),
     detailLoading: readonly(detailLoading),
+    settings: readonly(settings),
 
     // filter state (writable)
     searchQuery,
@@ -522,5 +606,8 @@ export const usePortsStore = defineStore("ports", () => {
     focusedPortInfo,
     openDetail,
     closeDetail,
+    savePreset,
+    deletePreset,
+    applyPreset,
   };
 });
