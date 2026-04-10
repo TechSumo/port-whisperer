@@ -14,3 +14,8 @@ coverage/
 dist/
 tmp/
 CLAUDE.md
+
+# Vite build output + TS incremental buildinfo
+web/dist/
+web/node_modules/.tmp/
+*.tsbuildinfo

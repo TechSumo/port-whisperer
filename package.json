@@ -32,7 +32,10 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test"
+    "test": "node --test",
+    "web:dev": "cd web && vite",
+    "web:build": "cd web && vue-tsc -b && vite build",
+    "web:preview": "cd web && vite preview"
   },
   "dependencies": {
     "@hono/node-server": "1.19.13",
@@ -40,5 +43,20 @@
     "cli-table3": "0.6.5",
     "hono": "4.12.12",
     "string-width": "8.2.0"
+  },
+  "devDependencies": {
+    "@fontsource-variable/jetbrains-mono": "5.2.8",
+    "@tsconfig/node20": "20.1.6",
+    "@types/node": "22.19.17",
+    "@vitejs/plugin-vue": "6.0.5",
+    "@vue/tsconfig": "0.9.1",
+    "autoprefixer": "10.4.20",
+    "pinia": "3.0.4",
+    "postcss": "8.5.1",
+    "tailwindcss": "3.4.17",
+    "typescript": "5.9.3",
+    "vite": "8.0.8",
+    "vue": "3.5.32",
+    "vue-tsc": "3.2.6"
   }
 }

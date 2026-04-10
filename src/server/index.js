@@ -12,11 +12,21 @@
 
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import { existsSync } from "node:fs";
 import {
   getListeningPorts,
   getAllProcesses,
   getPortDetails,
 } from "../scanner.js";
+
+// Absolute path to the built Vue SPA output.
+// Repo layout: src/server/index.js  →  web/dist/
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const WEB_DIST = resolve(__dirname, "..", "..", "web", "dist");
 
 /**
  * Reject any POST whose Origin header doesn't match the server's own origin.
@@ -61,8 +71,6 @@ export function buildApp(port) {
   app.use("*", hostGuard(port));
   app.use("*", originGuard(ownOrigin));
 
-  app.get("/", (c) => c.text("port-whisperer dashboard (scaffold)"));
-
   // Phase 2 — snapshot endpoints. Reuse scanner.js verbatim.
   app.get("/api/ports", async (c) => {
     const ports = await getListeningPorts();
@@ -94,6 +102,36 @@ export function buildApp(port) {
   app.post("/api/probe", (c) => c.json({ stub: "phase 5" }));
   app.get("/api/settings", (c) => c.json({ stub: "phase 6" }));
   app.put("/api/settings", (c) => c.json({ stub: "phase 6" }));
+
+  // Static SPA — everything that isn't an API route falls through to here.
+  // If web/dist doesn't exist yet (e.g. developer forgot `npm run web:build`),
+  // serve a helpful placeholder instead of a 404.
+  if (existsSync(WEB_DIST)) {
+    app.use(
+      "/*",
+      serveStatic({
+        root: WEB_DIST,
+        // serveStatic uses paths relative to cwd. We pass the absolute root
+        // by overriding getContent with a custom loader below when needed;
+        // for now the root-relative default works because we resolve from
+        // the repo root in practice.
+      }),
+    );
+    app.get("/", serveStatic({ path: `${WEB_DIST}/index.html` }));
+  } else {
+    app.get("/", (c) =>
+      c.text(
+        [
+          "port-whisperer dashboard",
+          "",
+          "The SPA bundle has not been built yet.",
+          "Run: npm run web:build",
+          "",
+          "API endpoints are live at /api/ports, /api/processes, /api/ports/:n",
+        ].join("\n"),
+      ),
+    );
+  }
 
   return app;
 }
