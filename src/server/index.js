@@ -24,6 +24,7 @@ import {
 } from "../scanner.js";
 import { subscribe as subscribeSSE } from "./sse.js";
 import { killAction, restartAction } from "./actions.js";
+import { detectViaHttpProbe } from "./detect.js";
 
 // Absolute path to the built Vue SPA output.
 // Repo layout: src/server/index.js  →  web/dist/
@@ -164,7 +165,25 @@ export function buildApp(port) {
     const result = await restartAction(pid);
     return c.json(result, result.ok ? 200 : 409);
   });
-  app.post("/api/probe", (c) => c.json({ stub: "phase 5" }));
+  // Phase 5 — on-demand HTTP probe for framework detection.
+  app.post("/api/probe", async (c) => {
+    let body;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ ok: false, error: "invalid JSON body" }, 400);
+    }
+    const port = Number(body?.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return c.json(
+        { ok: false, error: "port must be an integer 1-65535" },
+        400,
+      );
+    }
+    const pid = Number.isInteger(body?.pid) ? body.pid : undefined;
+    const result = await detectViaHttpProbe({ port, pid });
+    return c.json({ ok: true, port, ...result });
+  });
   app.get("/api/settings", (c) => c.json({ stub: "phase 6" }));
   app.put("/api/settings", (c) => c.json({ stub: "phase 6" }));
 

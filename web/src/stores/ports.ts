@@ -50,6 +50,14 @@ export const usePortsStore = defineStore("ports", () => {
   const toasts = ref<Toast[]>([]);
   let nextToastId = 1;
 
+  // Client-side override map for framework detection. When the user
+  // clicks "probe" on a row, the server response fills this entry and
+  // the row's framework cell reflects the probed result instead of the
+  // scanner snapshot. Keyed by port number (not pid) so the result
+  // survives PID churn.
+  const probedFrameworks = ref<Map<number, string | null>>(new Map());
+  const probing = ref<Set<number>>(new Set());
+
   // New-port flash tracking — ports that just appeared live.
   // Consumed by PortRow to apply the flash animation for ~2s.
   const recentlyNew = ref<Set<number>>(new Set());
@@ -244,6 +252,57 @@ export const usePortsStore = defineStore("ports", () => {
     }
   }
 
+  // --- probe action (phase 5)
+
+  async function probePort(port: PortInfo): Promise<void> {
+    const key = port.port;
+    if ((probing.value as ReadonlySet<number>).has(key)) return;
+    const nextProbing = new Set(probing.value);
+    nextProbing.add(key);
+    probing.value = nextProbing;
+
+    try {
+      const res = await fetch("/api/probe", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ port: port.port, pid: port.pid }),
+      });
+      const body = (await res.json()) as {
+        ok: boolean;
+        framework?: string | null;
+        reason?: string;
+        error?: string;
+      };
+      if (!body.ok) {
+        pushToast("error", `probe failed: ${body.error ?? "unknown"}`);
+        return;
+      }
+      const next = new Map(probedFrameworks.value);
+      next.set(key, body.framework ?? null);
+      probedFrameworks.value = next;
+      if (body.framework) {
+        pushToast(
+          "success",
+          `probed :${port.port} → ${body.framework}`,
+        );
+      } else {
+        pushToast(
+          "error",
+          `probed :${port.port} — no signature matched (${body.reason ?? "unknown"})`,
+        );
+      }
+    } catch (e) {
+      pushToast(
+        "error",
+        `probe request failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    } finally {
+      const done = new Set(probing.value);
+      done.delete(key);
+      probing.value = done;
+    }
+  }
+
   // --- public start / stop
 
   function start(): void {
@@ -329,6 +388,8 @@ export const usePortsStore = defineStore("ports", () => {
     recentlyNew: readonly(recentlyNew),
     pendingAction: readonly(pendingAction),
     toasts: readonly(toasts),
+    probedFrameworks: readonly(probedFrameworks),
+    probing: readonly(probing),
 
     // filter state (writable)
     searchQuery,
@@ -349,5 +410,6 @@ export const usePortsStore = defineStore("ports", () => {
     confirmAction,
     cancelAction,
     dismissToast,
+    probePort,
   };
 });

@@ -42,7 +42,7 @@ function onRestart(): void {
     <div class="text-[13px] text-fg-muted">{{ port.pid }}</div>
     <div class="truncate text-fg">{{ projectName }}</div>
     <div>
-      <FrameworkBadge :framework="port.framework" />
+      <FrameworkBadge :framework="port.framework" :port="port" />
     </div>
     <div class="text-[13px] text-fg-muted">{{ memory }}</div>
     <div class="text-[13px] text-fg-muted">{{ uptime }}</div>

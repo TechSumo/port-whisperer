@@ -324,32 +324,89 @@ function findProjectRoot(dir) {
   return dir;
 }
 
+/**
+ * Scan a parsed package.json object for framework-specific dependencies.
+ * Checks dependencies, devDependencies, peerDependencies, and the text
+ * content of every `scripts.*` value — that last one catches projects
+ * where the framework is installed indirectly (e.g. Nx monorepo roots
+ * with `next dev` in a script but no direct `next` dep).
+ *
+ * Pure function. No file IO. Exported for testing.
+ *
+ * @param {object | null | undefined} pkg - Parsed package.json contents
+ * @returns {string | null}
+ */
+export function detectFrameworkFromPackageJson(pkg) {
+  if (!pkg || typeof pkg !== "object") return null;
+
+  const allDeps = {
+    ...(pkg.dependencies || {}),
+    ...(pkg.devDependencies || {}),
+    ...(pkg.peerDependencies || {}),
+  };
+
+  // Dep-level matches take precedence — they're the most reliable signal.
+  if (allDeps["next"]) return "Next.js";
+  if (allDeps["nuxt"] || allDeps["nuxt3"]) return "Nuxt";
+  if (allDeps["@sveltejs/kit"]) return "SvelteKit";
+  if (allDeps["svelte"]) return "Svelte";
+  if (allDeps["@remix-run/react"] || allDeps["remix"]) return "Remix";
+  if (allDeps["astro"]) return "Astro";
+  if (allDeps["@builder.io/qwik"]) return "Qwik";
+  if (allDeps["solid-js"] || allDeps["solid-start"]) return "SolidJS";
+  if (allDeps["preact"]) return "Preact";
+  if (allDeps["@angular/core"]) return "Angular";
+  if (allDeps["gatsby"]) return "Gatsby";
+  // Build tools come before generic React/Vue since a Vite+Vue project
+  // should report "Vite" rather than "Vue" (the dev server identity matters).
+  if (allDeps["vite"]) return "Vite";
+  if (allDeps["vue"]) return "Vue";
+  if (allDeps["react"]) return "React";
+  // Backend frameworks
+  if (allDeps["@nestjs/core"] || allDeps["nestjs"]) return "NestJS";
+  if (allDeps["express"]) return "Express";
+  if (allDeps["fastify"]) return "Fastify";
+  if (allDeps["hono"]) return "Hono";
+  if (allDeps["koa"]) return "Koa";
+  if (allDeps["@hapi/hapi"]) return "Hapi";
+  // Build tools
+  if (allDeps["webpack-dev-server"]) return "Webpack";
+  if (allDeps["esbuild"]) return "esbuild";
+  if (allDeps["parcel"]) return "Parcel";
+
+  // Script-level matches — catches monorepo roots, indirect installs,
+  // or cases where the dep is named differently from the framework.
+  const scriptsText = Object.values(pkg.scripts || {})
+    .filter((v) => typeof v === "string")
+    .join(" ")
+    .toLowerCase();
+
+  if (scriptsText) {
+    if (/\bnext\s+(dev|start|build)/.test(scriptsText)) return "Next.js";
+    if (/\bnuxt\s+(dev|start|build)/.test(scriptsText)) return "Nuxt";
+    if (/\bvite\b/.test(scriptsText)) return "Vite";
+    if (/\bastro\s+(dev|build)/.test(scriptsText)) return "Astro";
+    if (/\bgatsby\s+(develop|build)/.test(scriptsText)) return "Gatsby";
+    if (/\bng\s+serve/.test(scriptsText)) return "Angular";
+    if (/\bremix\b/.test(scriptsText)) return "Remix";
+    if (/\bsvelte(-kit)?\b/.test(scriptsText)) return "Svelte";
+  }
+
+  return null;
+}
+
+/**
+ * Filesystem-backed framework detection. Reads package.json if present,
+ * delegates to the pure package.json scanner above, then falls back to
+ * config-file heuristics.
+ */
 function detectFramework(projectRoot) {
   const pkgPath = join(projectRoot, "package.json");
   if (existsSync(pkgPath)) {
     try {
       const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-      const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
-
-      if (allDeps["next"]) return "Next.js";
-      if (allDeps["nuxt"] || allDeps["nuxt3"]) return "Nuxt";
-      if (allDeps["@sveltejs/kit"]) return "SvelteKit";
-      if (allDeps["svelte"]) return "Svelte";
-      if (allDeps["@remix-run/react"] || allDeps["remix"]) return "Remix";
-      if (allDeps["astro"]) return "Astro";
-      if (allDeps["vite"]) return "Vite";
-      if (allDeps["@angular/core"]) return "Angular";
-      if (allDeps["vue"]) return "Vue";
-      if (allDeps["react"]) return "React";
-      if (allDeps["express"]) return "Express";
-      if (allDeps["fastify"]) return "Fastify";
-      if (allDeps["hono"]) return "Hono";
-      if (allDeps["koa"]) return "Koa";
-      if (allDeps["nestjs"] || allDeps["@nestjs/core"]) return "NestJS";
-      if (allDeps["gatsby"]) return "Gatsby";
-      if (allDeps["webpack-dev-server"]) return "Webpack";
-      if (allDeps["esbuild"]) return "esbuild";
-      if (allDeps["parcel"]) return "Parcel";
+      const fromPkg = detectFrameworkFromPackageJson(pkg);
+      if (fromPkg) return fromPkg;
     } catch {}
   }
 
@@ -368,14 +425,26 @@ function detectFramework(projectRoot) {
   if (existsSync(join(projectRoot, "go.mod"))) return "Go";
   if (existsSync(join(projectRoot, "manage.py"))) return "Django";
   if (existsSync(join(projectRoot, "Gemfile"))) return "Ruby";
+  if (existsSync(join(projectRoot, "pyproject.toml"))) return "Python";
+  if (existsSync(join(projectRoot, "mix.exs"))) return "Phoenix";
 
   return null;
 }
 
-function detectFrameworkFromCommand(command, processName) {
+/**
+ * Infer framework from a process command line.
+ * Order matters — more specific matches first. Returns null if no
+ * framework signal is found (falls back to process-name detection in
+ * the caller).
+ *
+ * Exported for testing.
+ */
+export function detectFrameworkFromCommand(command, processName) {
   if (!command) return detectFrameworkFromName(processName);
   const cmd = command.toLowerCase();
 
+  // --- JavaScript ecosystem
+  // `next` is substring-loose but common enough that it's fine here.
   if (cmd.includes("next")) return "Next.js";
   if (cmd.includes("vite")) return "Vite";
   if (cmd.includes("nuxt")) return "Nuxt";
@@ -384,10 +453,43 @@ function detectFrameworkFromCommand(command, processName) {
   if (cmd.includes("remix")) return "Remix";
   if (cmd.includes("astro")) return "Astro";
   if (cmd.includes("gatsby")) return "Gatsby";
-  if (cmd.includes("flask")) return "Flask";
-  if (cmd.includes("django") || cmd.includes("manage.py")) return "Django";
+  if (cmd.includes("@nestjs") || cmd.includes("nest start")) return "NestJS";
+
+  // --- Alternative runtimes
+  if (/\bbun run\b/.test(cmd)) return "Bun";
+  if (/\bdeno (run|task)\b/.test(cmd)) return "Deno";
+
+  // --- Python ASGI/WSGI servers (most specific first)
+  // Django ASGI server — must come before generic Django match.
+  if (cmd.includes("daphne")) return "Django";
   if (cmd.includes("uvicorn")) return "FastAPI";
+  if (cmd.includes("hypercorn")) return "FastAPI";
+  if (cmd.includes("granian")) return "FastAPI";
+  // Django WSGI signal — manage.py runserver, or django admin,
+  // or gunicorn with django-style config.
+  if (cmd.includes("manage.py")) return "Django";
+  if (cmd.includes("django")) return "Django";
+  if (cmd.includes("flask")) return "Flask";
+  // Gunicorn is a WSGI server that could serve Flask, Django, or a
+  // bare WSGI app. Without more context we report it as Gunicorn.
+  if (cmd.includes("gunicorn")) return "Gunicorn";
+
+  // --- Ruby
   if (cmd.includes("rails")) return "Rails";
+  if (/\bpuma\b/.test(cmd)) return "Rails";
+  if (/\bsidekiq\b/.test(cmd)) return "Sidekiq";
+
+  // --- Elixir
+  if (cmd.includes("phx.server") || cmd.includes("phoenix")) return "Phoenix";
+
+  // --- JVM
+  if (cmd.includes("spring-boot") || cmd.includes("org.springframework"))
+    return "Spring Boot";
+
+  // --- .NET
+  if (/\bdotnet (run|watch)\b/.test(cmd)) return ".NET";
+
+  // --- Systems langs
   if (cmd.includes("cargo") || cmd.includes("rustc")) return "Rust";
 
   return detectFrameworkFromName(processName);
