@@ -16,6 +16,7 @@ const store = usePortsStore();
 const uptime = computed(() => props.port.uptime ?? "—");
 const memory = computed(() => props.port.memory ?? "—");
 const projectName = computed(() => props.port.projectName ?? "—");
+const isFocused = computed(() => store.focusedPort === props.port.port);
 
 function onKill(): void {
   store.requestKill(props.port);
@@ -23,17 +24,24 @@ function onKill(): void {
 function onRestart(): void {
   store.requestRestart(props.port);
 }
+function onClick(): void {
+  store.focusPort(props.port.port);
+}
 </script>
 
 <template>
   <div
-    class="row stagger grid items-center gap-4 border-b border-border/70 pl-10 pr-8 py-3.5 text-[14px]"
-    :class="{ 'animate-flash-new': isNew }"
+    class="row stagger grid items-center gap-4 border-b border-border/70 pl-10 pr-8 py-3.5 text-[14px] cursor-pointer"
+    :class="{
+      'animate-flash-new': isNew,
+      'row-focused': isFocused,
+    }"
     :style="{
       '--i': index,
       gridTemplateColumns:
         '92px 1fr 100px 1fr 150px 96px 96px 100px 72px',
     }"
+    @click="onClick"
   >
     <div class="text-fg">
       <span class="text-accent/70">:</span>{{ port.port }}

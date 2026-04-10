@@ -167,6 +167,17 @@
     transform: translate(0, -50%);
   }
 
+  /* Keyboard-focused row: persistent hover look + a left accent rail. */
+  .row.row-focused {
+    background: rgb(var(--bg-elevated) / 0.9);
+    box-shadow: inset 2px 0 0 rgb(var(--accent) / 1);
+  }
+  .row.row-focused::before {
+    content: ">";
+    color: rgb(var(--accent) / 1);
+    transform: translate(0, -50%);
+  }
+
   /* Stagger-fade used on initial row mount. Index is set via --i inline. */
   .stagger {
     opacity: 0;

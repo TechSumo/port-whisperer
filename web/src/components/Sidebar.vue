@@ -4,6 +4,10 @@ import { usePortsStore } from "@/stores/ports";
 
 type View = "ports" | "processes";
 
+defineProps<{
+  searchInputId?: string;
+}>();
+
 const view = defineModel<View>("view", { required: true });
 const store = usePortsStore();
 
@@ -89,9 +93,10 @@ function isSelected(name: string): boolean {
           >?</span
         >
         <input
+          :id="searchInputId"
           v-model="store.searchQuery"
           type="text"
-          placeholder="port pid project..."
+          placeholder="port pid project... (/ to focus)"
           class="w-full border border-border bg-bg-elevated pl-8 pr-3 py-2 text-[13px] text-fg placeholder:text-fg-subtle focus:border-accent/60 focus:outline-none"
         />
       </div>

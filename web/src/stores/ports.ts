@@ -58,6 +58,11 @@ export const usePortsStore = defineStore("ports", () => {
   const probedFrameworks = ref<Map<number, string | null>>(new Map());
   const probing = ref<Set<number>>(new Set());
 
+  // Keyboard focus: which row is currently focused for single-key
+  // action shortcuts. Null means "no focus; first action selects the
+  // first row". Keyed by port number so SSE updates don't blow it away.
+  const focusedPort = ref<number | null>(null);
+
   // New-port flash tracking — ports that just appeared live.
   // Consumed by PortRow to apply the flash animation for ~2s.
   const recentlyNew = ref<Set<number>>(new Set());
@@ -303,6 +308,63 @@ export const usePortsStore = defineStore("ports", () => {
     }
   }
 
+  // --- keyboard focus navigation (phase 9a)
+
+  function focusPort(port: number | null): void {
+    focusedPort.value = port;
+  }
+
+  function focusNext(): void {
+    const rows = filteredPorts.value;
+    if (rows.length === 0) {
+      focusedPort.value = null;
+      return;
+    }
+    const current = focusedPort.value;
+    if (current === null) {
+      focusedPort.value = rows[0]?.port ?? null;
+      return;
+    }
+    const idx = rows.findIndex((p) => p.port === current);
+    if (idx === -1 || idx >= rows.length - 1) {
+      focusedPort.value = rows[0]?.port ?? null;
+      return;
+    }
+    focusedPort.value = rows[idx + 1]?.port ?? null;
+  }
+
+  function focusPrev(): void {
+    const rows = filteredPorts.value;
+    if (rows.length === 0) {
+      focusedPort.value = null;
+      return;
+    }
+    const current = focusedPort.value;
+    if (current === null) {
+      focusedPort.value = rows[rows.length - 1]?.port ?? null;
+      return;
+    }
+    const idx = rows.findIndex((p) => p.port === current);
+    if (idx <= 0) {
+      focusedPort.value = rows[rows.length - 1]?.port ?? null;
+      return;
+    }
+    focusedPort.value = rows[idx - 1]?.port ?? null;
+  }
+
+  /**
+   * Resolve the current focused port to a live PortInfo, if any.
+   * Handles the case where the focused port was removed by an SSE
+   * event or filtered out by a filter change.
+   */
+  function focusedPortInfo(): PortInfo | null {
+    if (focusedPort.value === null) return null;
+    const hit = filteredPorts.value.find(
+      (p) => p.port === focusedPort.value,
+    );
+    return hit ?? null;
+  }
+
   // --- public start / stop
 
   function start(): void {
@@ -390,6 +452,7 @@ export const usePortsStore = defineStore("ports", () => {
     toasts: readonly(toasts),
     probedFrameworks: readonly(probedFrameworks),
     probing: readonly(probing),
+    focusedPort: readonly(focusedPort),
 
     // filter state (writable)
     searchQuery,
@@ -411,5 +474,9 @@ export const usePortsStore = defineStore("ports", () => {
     cancelAction,
     dismissToast,
     probePort,
+    focusPort,
+    focusNext,
+    focusPrev,
+    focusedPortInfo,
   };
 });
