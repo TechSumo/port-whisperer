@@ -123,7 +123,10 @@ function isSelected(name: string): boolean {
     <!-- Footer -->
     <div class="mt-auto border-t border-border px-6 py-4">
       <p class="text-[11px] leading-relaxed text-fg-subtle">
-        polling @ 2s ::
+        <span :class="store.connected ? 'text-accent' : 'text-fg-subtle'">
+          {{ store.connected ? "● live" : "○ offline" }}
+        </span>
+        ::
         <button
           class="underline-offset-2 hover:text-fg-muted hover:underline"
           @click="store.clearFilters"

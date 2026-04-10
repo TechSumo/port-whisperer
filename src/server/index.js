@@ -11,6 +11,7 @@
  */
 
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { fileURLToPath } from "node:url";
@@ -21,6 +22,7 @@ import {
   getAllProcesses,
   getPortDetails,
 } from "../scanner.js";
+import { subscribe as subscribeSSE } from "./sse.js";
 
 // Absolute path to the built Vue SPA output.
 // Repo layout: src/server/index.js  →  web/dist/
@@ -96,7 +98,33 @@ export function buildApp(port) {
     return c.json(info);
   });
 
-  app.get("/events", (c) => c.json({ stub: "phase 3" }));
+  // Phase 3 — SSE live stream. One shared polling loop feeds every
+  // subscriber; diff events flow as {type: "new"|"gone"|"update", port}.
+  app.get("/events", (c) =>
+    streamSSE(c, async (stream) => {
+      const send = (ev) => {
+        // Fire-and-forget write; stream closure throws on a dead socket
+        // and we catch it below to unsubscribe.
+        stream.writeSSE({ data: JSON.stringify(ev) }).catch(() => {});
+      };
+
+      const { bootstrap, unsubscribe } = await subscribeSSE(send);
+
+      // Emit the current-state snapshot as "new" events so the client
+      // can bootstrap without a separate initial fetch.
+      for (const ev of bootstrap) {
+        await stream.writeSSE({ data: JSON.stringify(ev) });
+      }
+
+      // Hold the connection open until the client aborts.
+      await new Promise((resolve) => {
+        stream.onAbort(() => {
+          unsubscribe();
+          resolve(undefined);
+        });
+      });
+    }),
+  );
   app.post("/api/kill", (c) => c.json({ stub: "phase 4" }));
   app.post("/api/restart", (c) => c.json({ stub: "phase 4" }));
   app.post("/api/probe", (c) => c.json({ stub: "phase 5" }));

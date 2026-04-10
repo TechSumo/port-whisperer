@@ -51,7 +51,8 @@ export default {
           "50%": { opacity: "1", transform: "scale(1.2)" },
         },
         flashNew: {
-          "0%": { backgroundColor: "rgb(var(--accent) / 0.22)" },
+          "0%": { backgroundColor: "rgb(var(--accent) / 0.32)" },
+          "85%": { backgroundColor: "rgb(var(--accent) / 0.32)" },
           "100%": { backgroundColor: "rgb(var(--accent) / 0)" },
         },
       },

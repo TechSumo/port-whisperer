@@ -2,97 +2,176 @@ import { defineStore } from "pinia";
 import { ref, computed, readonly } from "vue";
 import type { PortInfo, ProcessInfo } from "@/types/api";
 
-// Central store for port + process snapshots. Polling happens here
-// so any component can subscribe without re-fetching. Once SSE lands
-// in a later phase, startPolling() gets swapped for a streaming impl
-// with the same public surface.
+// Central store for port + process snapshots.
+//
+// Ports come via SSE on /events (phase 3):
+//   - Initial bootstrap: a burst of `new` events for every currently
+//     listening port. These should NOT trigger the flash animation.
+//   - Live updates: incremental `new` / `update` / `gone` / `heartbeat`
+//     events from the shared server poll loop.
+//
+// Processes continue to use a slow poll (3s) on /api/processes — the
+// spec scopes SSE to ports only, and processes are secondary context
+// so a slower cadence is fine.
+
+type SSEEvent =
+  | { type: "new"; port: PortInfo }
+  | { type: "update"; port: PortInfo }
+  | { type: "gone"; port: number }
+  | { type: "heartbeat" };
+
 export const usePortsStore = defineStore("ports", () => {
   // --- state
   const ports = ref<PortInfo[]>([]);
   const processes = ref<ProcessInfo[]>([]);
-  const loading = ref(false);
   const error = ref<string | null>(null);
   const lastUpdated = ref<Date | null>(null);
   const initialLoaded = ref(false);
+  const connected = ref(false);
 
   // Filter state
   const searchQuery = ref("");
   const selectedFrameworks = ref<Set<string>>(new Set());
 
-  // New-port flash tracking — ports that appeared on the most recent poll.
+  // New-port flash tracking — ports that just appeared live.
   // Consumed by PortRow to apply the flash animation for ~2s.
   const recentlyNew = ref<Set<number>>(new Set());
 
-  let pollTimer: number | null = null;
-  let knownPorts: Set<number> = new Set();
+  let eventSource: EventSource | null = null;
+  let processPollTimer: number | null = null;
+  // Events arriving within this window after open() are the bootstrap
+  // burst and must not trigger flash animation.
+  let bootstrapUntil = 0;
 
-  async function fetchJson<T>(url: string): Promise<T> {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
-    return (await res.json()) as T;
+  // --- SSE plumbing
+
+  function markNew(port: number): void {
+    const next = new Set(recentlyNew.value);
+    next.add(port);
+    recentlyNew.value = next;
+    window.setTimeout(() => {
+      const updated = new Set(recentlyNew.value);
+      updated.delete(port);
+      recentlyNew.value = updated;
+    }, 2000);
   }
 
-  async function refresh(): Promise<void> {
-    try {
-      const [nextPorts, nextProcesses] = await Promise.all([
-        fetchJson<PortInfo[]>("/api/ports"),
-        fetchJson<ProcessInfo[]>("/api/processes"),
-      ]);
+  function applyEvent(ev: SSEEvent): void {
+    lastUpdated.value = new Date();
 
-      // Detect newly appeared ports (used for the flash animation).
-      if (initialLoaded.value) {
-        const fresh: number[] = [];
-        for (const p of nextPorts) {
-          if (!knownPorts.has(p.port)) fresh.push(p.port);
-        }
-        if (fresh.length > 0) {
-          const next = new Set(recentlyNew.value);
-          for (const port of fresh) next.add(port);
-          recentlyNew.value = next;
-          // Clear each flagged port after the animation duration.
-          for (const port of fresh) {
-            window.setTimeout(() => {
-              const updated = new Set(recentlyNew.value);
-              updated.delete(port);
-              recentlyNew.value = updated;
-            }, 2000);
-          }
-        }
-      }
+    if (ev.type === "heartbeat") return;
 
-      knownPorts = new Set(nextPorts.map((p) => p.port));
-      ports.value = nextPorts;
-      processes.value = nextProcesses;
-      lastUpdated.value = new Date();
-      error.value = null;
+    if (ev.type === "new") {
+      const incoming = ev.port;
+      // Skip duplicates if the server replays something.
+      if (ports.value.some((p) => p.port === incoming.port)) return;
+      const next = [...ports.value, incoming].sort((a, b) => a.port - b.port);
+      ports.value = next;
       initialLoaded.value = true;
+      // Only trigger the flash if this event arrives AFTER the
+      // bootstrap window — bootstrap ports should appear silently.
+      if (Date.now() > bootstrapUntil) {
+        markNew(incoming.port);
+      }
+      return;
+    }
+
+    if (ev.type === "update") {
+      const incoming = ev.port;
+      const idx = ports.value.findIndex((p) => p.port === incoming.port);
+      if (idx < 0) {
+        // Update for a port we don't have yet — treat as new.
+        const next = [...ports.value, incoming].sort((a, b) => a.port - b.port);
+        ports.value = next;
+        return;
+      }
+      const next = [...ports.value];
+      next[idx] = incoming;
+      ports.value = next;
+      return;
+    }
+
+    if (ev.type === "gone") {
+      const goneNumber = ev.port;
+      ports.value = ports.value.filter((p) => p.port !== goneNumber);
+      return;
+    }
+  }
+
+  function openEventStream(): void {
+    if (eventSource !== null) return;
+    bootstrapUntil = Date.now() + 500;
+    const es = new EventSource("/events");
+    es.onopen = () => {
+      connected.value = true;
+      error.value = null;
+    };
+    es.onmessage = (msg) => {
+      try {
+        const parsed = JSON.parse(msg.data) as SSEEvent;
+        applyEvent(parsed);
+      } catch (e) {
+        // Malformed frame — log and drop, don't crash the stream.
+        console.error("[ports store] failed to parse SSE event:", e, msg.data);
+      }
+    };
+    es.onerror = () => {
+      // EventSource handles its own reconnect. We just reflect the
+      // visible status — no hard failure here.
+      connected.value = false;
+    };
+    eventSource = es;
+  }
+
+  function closeEventStream(): void {
+    if (eventSource !== null) {
+      eventSource.close();
+      eventSource = null;
+    }
+    connected.value = false;
+  }
+
+  // --- process polling (SSE scopes only to ports)
+
+  async function refreshProcesses(): Promise<void> {
+    try {
+      const res = await fetch("/api/processes");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      processes.value = (await res.json()) as ProcessInfo[];
+      error.value = null;
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e);
     }
   }
 
-  async function hardRefresh(): Promise<void> {
-    loading.value = true;
-    await refresh();
-    loading.value = false;
-  }
-
-  function startPolling(intervalMs = 2000): void {
-    if (pollTimer !== null) return;
-    void hardRefresh();
-    pollTimer = window.setInterval(() => {
-      void refresh();
+  function startProcessPolling(intervalMs = 3000): void {
+    if (processPollTimer !== null) return;
+    void refreshProcesses();
+    processPollTimer = window.setInterval(() => {
+      void refreshProcesses();
     }, intervalMs);
   }
 
-  function stopPolling(): void {
-    if (pollTimer !== null) {
-      window.clearInterval(pollTimer);
-      pollTimer = null;
+  function stopProcessPolling(): void {
+    if (processPollTimer !== null) {
+      window.clearInterval(processPollTimer);
+      processPollTimer = null;
     }
   }
 
-  // --- filtered views
+  // --- public start / stop
+
+  function start(): void {
+    openEventStream();
+    startProcessPolling();
+  }
+
+  function stop(): void {
+    closeEventStream();
+    stopProcessPolling();
+  }
+
+  // --- filtered views (unchanged from previous impl)
 
   const filteredPorts = computed<PortInfo[]>(() => {
     const q = searchQuery.value.trim().toLowerCase();
@@ -158,13 +237,13 @@ export const usePortsStore = defineStore("ports", () => {
     // state (readonly for safety)
     ports: readonly(ports),
     processes: readonly(processes),
-    loading: readonly(loading),
     error: readonly(error),
     lastUpdated: readonly(lastUpdated),
     initialLoaded: readonly(initialLoaded),
+    connected: readonly(connected),
     recentlyNew: readonly(recentlyNew),
 
-    // filter state (writable — these are the mutation surface)
+    // filter state (writable)
     searchQuery,
     selectedFrameworks: readonly(selectedFrameworks),
 
@@ -174,10 +253,8 @@ export const usePortsStore = defineStore("ports", () => {
     availableFrameworks,
 
     // actions
-    refresh,
-    hardRefresh,
-    startPolling,
-    stopPolling,
+    start,
+    stop,
     toggleFramework,
     clearFilters,
   };

@@ -12,10 +12,10 @@ const store = usePortsStore();
 const view = ref<View>("ports");
 
 onMounted(() => {
-  store.startPolling();
+  store.start();
 });
 onUnmounted(() => {
-  store.stopPolling();
+  store.stop();
 });
 </script>
 
