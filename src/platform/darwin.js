@@ -4,6 +4,12 @@
 
 import { execSync } from "child_process";
 import { basename } from "path";
+import {
+  LC_ALL_C_ENV,
+  PROCESS_TREE_DEPTH_LIMIT,
+  parsePsBatchLine,
+  parsePsAllProcessesLine,
+} from "./posix-shared.js";
 
 export function getListeningPortsRaw() {
   let raw;
@@ -44,34 +50,18 @@ export function batchProcessInfo(pids) {
   const map = new Map();
   if (pids.length === 0) return map;
 
-  // LC_ALL=C forces `ps lstart` to emit "Fri Apr 10 08:19:42 2026"; other
-  // locales reorder day/month and break the regex below (and new Date()).
   try {
     const pidList = pids.join(",");
     const raw = execSync(
       `ps -p ${pidList} -o pid=,ppid=,stat=,rss=,lstart=,command= 2>/dev/null`,
-      {
-        encoding: "utf8",
-        timeout: 5000,
-        env: { ...process.env, LC_ALL: "C" },
-      },
+      { encoding: "utf8", timeout: 5000, env: LC_ALL_C_ENV },
     ).trim();
 
     for (const line of raw.split("\n")) {
-      if (!line.trim()) continue;
-      const m = line
-        .trim()
-        .match(
-          /^(\d+)\s+(\d+)\s+(\S+)\s+(\d+)\s+\w+\s+(\w+\s+\d+\s+[\d:]+\s+\d+)\s+(.*)$/,
-        );
-      if (!m) continue;
-      map.set(parseInt(m[1], 10), {
-        ppid: parseInt(m[2], 10),
-        stat: m[3],
-        rss: parseInt(m[4], 10),
-        lstart: m[5],
-        command: m[6],
-      });
+      const info = parsePsBatchLine(line);
+      if (!info) continue;
+      const { pid, ...rest } = info;
+      map.set(pid, rest);
     }
   } catch {}
   return map;
@@ -104,15 +94,10 @@ export function batchCwd(pids) {
 
 export function getAllProcessesRaw() {
   let raw;
-  // LC_ALL=C — same reason as batchProcessInfo above.
   try {
     raw = execSync(
       "ps -eo pid=,pcpu=,pmem=,rss=,lstart=,command= 2>/dev/null",
-      {
-        encoding: "utf8",
-        timeout: 5000,
-        env: { ...process.env, LC_ALL: "C" },
-      },
+      { encoding: "utf8", timeout: 5000, env: LC_ALL_C_ENV },
     ).trim();
   } catch {
     return [];
@@ -122,30 +107,14 @@ export function getAllProcessesRaw() {
   const seen = new Set();
 
   for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    const m = line
-      .trim()
-      .match(
-        /^(\d+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+\w+\s+(\w+\s+\d+\s+[\d:]+\s+\d+)\s+(.*)$/,
-      );
-    if (!m) continue;
-
-    const pid = parseInt(m[1], 10);
+    const parsed = parsePsAllProcessesLine(line);
+    if (!parsed) continue;
+    const { pid } = parsed;
     if (pid <= 1 || pid === process.pid || seen.has(pid)) continue;
     seen.add(pid);
 
-    const command = m[6];
-    const processName = basename(command.split(/\s+/)[0]);
-
-    entries.push({
-      pid,
-      processName,
-      cpu: parseFloat(m[2]),
-      memPercent: parseFloat(m[3]),
-      rss: parseInt(m[4], 10),
-      lstart: m[5],
-      command,
-    });
+    const processName = basename(parsed.command.split(/\s+/)[0]);
+    entries.push({ processName, ...parsed });
   }
 
   return entries;
@@ -170,7 +139,7 @@ export function getProcessTree(pid) {
 
     let currentPid = pid;
     let depth = 0;
-    while (currentPid > 1 && depth < 8) {
+    while (currentPid > 1 && depth < PROCESS_TREE_DEPTH_LIMIT) {
       const proc = processes.get(currentPid);
       if (!proc) break;
       tree.push(proc);
