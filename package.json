@@ -21,7 +21,7 @@
     "url": "https://github.com/larsencundric/port-whisperer.git"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "files": [
     "src/"
