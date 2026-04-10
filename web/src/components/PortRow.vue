@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { PortInfo } from "@/types/api";
+import { usePortsStore } from "@/stores/ports";
 import StatusDot from "./StatusDot.vue";
 import FrameworkBadge from "./FrameworkBadge.vue";
 
@@ -10,9 +11,18 @@ const props = defineProps<{
   isNew: boolean;
 }>();
 
+const store = usePortsStore();
+
 const uptime = computed(() => props.port.uptime ?? "—");
 const memory = computed(() => props.port.memory ?? "—");
 const projectName = computed(() => props.port.projectName ?? "—");
+
+function onKill(): void {
+  store.requestKill(props.port);
+}
+function onRestart(): void {
+  store.requestRestart(props.port);
+}
 </script>
 
 <template>
@@ -21,7 +31,8 @@ const projectName = computed(() => props.port.projectName ?? "—");
     :class="{ 'animate-flash-new': isNew }"
     :style="{
       '--i': index,
-      gridTemplateColumns: '92px 1fr 100px 1fr 150px 96px 104px 120px',
+      gridTemplateColumns:
+        '92px 1fr 100px 1fr 150px 96px 96px 100px 72px',
     }"
   >
     <div class="text-fg">
@@ -35,8 +46,54 @@ const projectName = computed(() => props.port.projectName ?? "—");
     </div>
     <div class="text-[13px] text-fg-muted">{{ memory }}</div>
     <div class="text-[13px] text-fg-muted">{{ uptime }}</div>
-    <div class="flex justify-end">
+    <div>
       <StatusDot :status="port.status" />
+    </div>
+    <div class="flex items-center justify-end gap-1">
+      <button
+        type="button"
+        title="Restart"
+        aria-label="Restart process"
+        class="border border-transparent px-1.5 py-1 text-fg-subtle transition-colors duration-150 hover:border-accent/50 hover:text-accent"
+        @click="onRestart"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          class="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M3 8a5 5 0 0 1 8.5-3.5L13 6" />
+          <path d="M13 3v3h-3" />
+          <path d="M13 8a5 5 0 0 1-8.5 3.5L3 10" />
+          <path d="M3 13v-3h3" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        title="Kill"
+        aria-label="Kill process"
+        class="border border-transparent px-1.5 py-1 text-fg-subtle transition-colors duration-150 hover:border-zombie/60 hover:text-zombie"
+        @click="onKill"
+      >
+        <svg
+          viewBox="0 0 16 16"
+          class="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M3 3 L13 13" />
+          <path d="M13 3 L3 13" />
+        </svg>
+      </button>
     </div>
   </div>
 </template>

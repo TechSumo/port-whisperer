@@ -102,16 +102,20 @@ test("Origin guard: POST without matching Origin returns 403", async () => {
   assert.equal(body.error, "invalid origin");
 });
 
-test("Origin guard: POST with self Origin passes through to stub", async () => {
+test("Origin guard: POST with self Origin passes through to handler", async () => {
   const app = makeApp();
   const res = await app.request("/api/kill", {
     method: "POST",
     headers: {
       ...HOST_HEADERS,
       Origin: `http://127.0.0.1:${PORT}`,
+      "content-type": "application/json",
     },
-    body: JSON.stringify({ pid: 99999 }),
+    body: JSON.stringify({ pid: 9999997 }),
   });
-  // Phase 1 stub still returns 200; real handler lands in phase 4.
-  assert.equal(res.status, 200);
+  // Phase 4 real handler runs: PID doesn't exist → 409.
+  // The point of this test is to verify the origin guard did NOT 403
+  // — full kill/restart behavior is covered in test/server-actions.test.js.
+  assert.notEqual(res.status, 403);
+  assert.equal(res.status, 409);
 });

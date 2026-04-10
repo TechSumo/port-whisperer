@@ -20,6 +20,16 @@ type SSEEvent =
   | { type: "gone"; port: number }
   | { type: "heartbeat" };
 
+export type PendingAction =
+  | { kind: "kill"; port: PortInfo }
+  | { kind: "restart"; port: PortInfo };
+
+export interface Toast {
+  id: number;
+  tone: "success" | "error";
+  message: string;
+}
+
 export const usePortsStore = defineStore("ports", () => {
   // --- state
   const ports = ref<PortInfo[]>([]);
@@ -32,6 +42,13 @@ export const usePortsStore = defineStore("ports", () => {
   // Filter state
   const searchQuery = ref("");
   const selectedFrameworks = ref<Set<string>>(new Set());
+
+  // Pending destructive action (drives the confirm modal)
+  const pendingAction = ref<PendingAction | null>(null);
+
+  // Toasts (success / failure feedback for kill + restart)
+  const toasts = ref<Toast[]>([]);
+  let nextToastId = 1;
 
   // New-port flash tracking — ports that just appeared live.
   // Consumed by PortRow to apply the flash animation for ~2s.
@@ -159,6 +176,74 @@ export const usePortsStore = defineStore("ports", () => {
     }
   }
 
+  // --- kill / restart actions (phase 4)
+
+  function pushToast(tone: Toast["tone"], message: string): void {
+    const id = nextToastId++;
+    toasts.value = [...toasts.value, { id, tone, message }];
+    window.setTimeout(() => {
+      toasts.value = toasts.value.filter((t) => t.id !== id);
+    }, 4500);
+  }
+
+  function dismissToast(id: number): void {
+    toasts.value = toasts.value.filter((t) => t.id !== id);
+  }
+
+  function requestKill(port: PortInfo): void {
+    pendingAction.value = { kind: "kill", port };
+  }
+
+  function requestRestart(port: PortInfo): void {
+    pendingAction.value = { kind: "restart", port };
+  }
+
+  function cancelAction(): void {
+    pendingAction.value = null;
+  }
+
+  async function confirmAction(): Promise<void> {
+    const action = pendingAction.value;
+    if (!action) return;
+    pendingAction.value = null;
+
+    const { kind, port } = action;
+    const endpoint = kind === "kill" ? "/api/kill" : "/api/restart";
+    const label = `:${port.port} — ${port.processName} (PID ${port.pid})`;
+
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pid: port.pid }),
+      });
+      const body = (await res.json()) as {
+        ok: boolean;
+        error?: string;
+        stage?: string;
+      };
+      if (body.ok) {
+        pushToast(
+          "success",
+          kind === "kill"
+            ? `killed ${label}`
+            : `restarted ${label}`,
+        );
+      } else {
+        const stage = body.stage ? ` [${body.stage}]` : "";
+        pushToast(
+          "error",
+          `${kind} failed${stage}: ${body.error ?? "unknown error"}`,
+        );
+      }
+    } catch (e) {
+      pushToast(
+        "error",
+        `${kind} request failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   // --- public start / stop
 
   function start(): void {
@@ -242,6 +327,8 @@ export const usePortsStore = defineStore("ports", () => {
     initialLoaded: readonly(initialLoaded),
     connected: readonly(connected),
     recentlyNew: readonly(recentlyNew),
+    pendingAction: readonly(pendingAction),
+    toasts: readonly(toasts),
 
     // filter state (writable)
     searchQuery,
@@ -257,5 +344,10 @@ export const usePortsStore = defineStore("ports", () => {
     stop,
     toggleFramework,
     clearFilters,
+    requestKill,
+    requestRestart,
+    confirmAction,
+    cancelAction,
+    dismissToast,
   };
 });

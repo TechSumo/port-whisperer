@@ -23,6 +23,7 @@ import {
   getPortDetails,
 } from "../scanner.js";
 import { subscribe as subscribeSSE } from "./sse.js";
+import { killAction, restartAction } from "./actions.js";
 
 // Absolute path to the built Vue SPA output.
 // Repo layout: src/server/index.js  →  web/dist/
@@ -125,8 +126,44 @@ export function buildApp(port) {
       });
     }),
   );
-  app.post("/api/kill", (c) => c.json({ stub: "phase 4" }));
-  app.post("/api/restart", (c) => c.json({ stub: "phase 4" }));
+  // Phase 4 — kill/restart actions.
+  // Body validation is shared: both endpoints require a positive integer pid.
+  app.post("/api/kill", async (c) => {
+    let body;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ ok: false, error: "invalid JSON body" }, 400);
+    }
+    const pid = Number(body?.pid);
+    if (!Number.isInteger(pid) || pid < 1) {
+      return c.json(
+        { ok: false, error: "pid must be a positive integer" },
+        400,
+      );
+    }
+    const force = body?.force === true;
+    const result = await killAction(pid, { force });
+    return c.json(result, result.ok ? 200 : 409);
+  });
+
+  app.post("/api/restart", async (c) => {
+    let body;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ ok: false, error: "invalid JSON body" }, 400);
+    }
+    const pid = Number(body?.pid);
+    if (!Number.isInteger(pid) || pid < 1) {
+      return c.json(
+        { ok: false, error: "pid must be a positive integer" },
+        400,
+      );
+    }
+    const result = await restartAction(pid);
+    return c.json(result, result.ok ? 200 : 409);
+  });
   app.post("/api/probe", (c) => c.json({ stub: "phase 5" }));
   app.get("/api/settings", (c) => c.json({ stub: "phase 6" }));
   app.put("/api/settings", (c) => c.json({ stub: "phase 6" }));

@@ -5,6 +5,8 @@ import AppHeader from "@/components/AppHeader.vue";
 import Sidebar from "@/components/Sidebar.vue";
 import PortTable from "@/components/PortTable.vue";
 import ProcessTable from "@/components/ProcessTable.vue";
+import KillConfirm from "@/components/KillConfirm.vue";
+import Toasts from "@/components/Toasts.vue";
 
 type View = "ports" | "processes";
 
@@ -29,5 +31,7 @@ onUnmounted(() => {
         <ProcessTable v-else />
       </div>
     </main>
+    <KillConfirm />
+    <Toasts />
   </div>
 </template>
