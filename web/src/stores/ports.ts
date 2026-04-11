@@ -91,6 +91,12 @@ export const usePortsStore = defineStore("ports", () => {
   // Consumed by PortRow to apply the flash animation for ~2s.
   const recentlyNew = ref<Set<number>>(new Set());
 
+  // Per-port memory history, capped at 30 points per spec FR-34.
+  // In-memory only — never persisted. Values are MB as parsed from
+  // the formatted memory string ("75.7 MB" → 75.7).
+  const memoryHistory = ref<Map<number, number[]>>(new Map());
+  const MEMORY_HISTORY_CAP = 30;
+
   let eventSource: EventSource | null = null;
   let processPollTimer: number | null = null;
   // Events arriving within this window after open() are the bootstrap
@@ -110,6 +116,42 @@ export const usePortsStore = defineStore("ports", () => {
     }, 2000);
   }
 
+  /**
+   * Parse a formatted memory string like "75.7 MB" / "1.2 GB" / "512 KB"
+   * into a numeric value in MB. Returns null on unparseable input so
+   * callers can decide whether to skip the history update.
+   */
+  function parseMemoryMB(raw: string | null | undefined): number | null {
+    if (!raw) return null;
+    const match = raw.match(/([\d.]+)\s*(GB|MB|KB)/i);
+    if (!match) return null;
+    const value = parseFloat(match[1] ?? "");
+    if (Number.isNaN(value)) return null;
+    const unit = (match[2] ?? "").toUpperCase();
+    if (unit === "GB") return value * 1024;
+    if (unit === "MB") return value;
+    if (unit === "KB") return value / 1024;
+    return null;
+  }
+
+  function pushMemoryPoint(port: number, mb: number): void {
+    const next = new Map(memoryHistory.value);
+    const existing = next.get(port) ?? [];
+    const updated = [...existing, mb];
+    if (updated.length > MEMORY_HISTORY_CAP) {
+      updated.splice(0, updated.length - MEMORY_HISTORY_CAP);
+    }
+    next.set(port, updated);
+    memoryHistory.value = next;
+  }
+
+  function dropMemoryHistory(port: number): void {
+    if (!memoryHistory.value.has(port)) return;
+    const next = new Map(memoryHistory.value);
+    next.delete(port);
+    memoryHistory.value = next;
+  }
+
   function applyEvent(ev: SSEEvent): void {
     lastUpdated.value = new Date();
 
@@ -122,6 +164,8 @@ export const usePortsStore = defineStore("ports", () => {
       const next = [...ports.value, incoming].sort((a, b) => a.port - b.port);
       ports.value = next;
       initialLoaded.value = true;
+      const mb = parseMemoryMB(incoming.memory);
+      if (mb !== null) pushMemoryPoint(incoming.port, mb);
       // Only trigger the flash if this event arrives AFTER the
       // bootstrap window — bootstrap ports should appear silently.
       if (Date.now() > bootstrapUntil) {
@@ -137,17 +181,22 @@ export const usePortsStore = defineStore("ports", () => {
         // Update for a port we don't have yet — treat as new.
         const next = [...ports.value, incoming].sort((a, b) => a.port - b.port);
         ports.value = next;
+        const mb = parseMemoryMB(incoming.memory);
+        if (mb !== null) pushMemoryPoint(incoming.port, mb);
         return;
       }
       const next = [...ports.value];
       next[idx] = incoming;
       ports.value = next;
+      const mb = parseMemoryMB(incoming.memory);
+      if (mb !== null) pushMemoryPoint(incoming.port, mb);
       return;
     }
 
     if (ev.type === "gone") {
       const goneNumber = ev.port;
       ports.value = ports.value.filter((p) => p.port !== goneNumber);
+      dropMemoryHistory(goneNumber);
       return;
     }
   }
@@ -570,6 +619,7 @@ export const usePortsStore = defineStore("ports", () => {
     initialLoaded: readonly(initialLoaded),
     connected: readonly(connected),
     recentlyNew: readonly(recentlyNew),
+    memoryHistory: readonly(memoryHistory),
     pendingAction: readonly(pendingAction),
     toasts: readonly(toasts),
     probedFrameworks: readonly(probedFrameworks),

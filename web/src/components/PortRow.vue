@@ -4,6 +4,7 @@ import type { PortInfo } from "@/types/api";
 import { usePortsStore } from "@/stores/ports";
 import StatusDot from "./StatusDot.vue";
 import FrameworkBadge from "./FrameworkBadge.vue";
+import Sparkline from "./Sparkline.vue";
 
 const props = defineProps<{
   port: PortInfo;
@@ -17,6 +18,11 @@ const uptime = computed(() => props.port.uptime ?? "—");
 const memory = computed(() => props.port.memory ?? "—");
 const projectName = computed(() => props.port.projectName ?? "—");
 const isFocused = computed(() => store.focusedPort === props.port.port);
+
+const memPoints = computed<number[]>(() => {
+  const history = store.memoryHistory as ReadonlyMap<number, readonly number[]>;
+  return [...(history.get(props.port.port) ?? [])];
+});
 
 function onKill(): void {
   store.requestKill(props.port);
@@ -40,7 +46,7 @@ function onClick(): void {
     :style="{
       '--i': index,
       gridTemplateColumns:
-        '92px 1fr 100px 1fr 150px 96px 96px 100px 72px',
+        '92px 1fr 100px 1fr 140px 140px 96px 100px 72px',
     }"
     @click="onClick"
   >
@@ -53,7 +59,10 @@ function onClick(): void {
     <div>
       <FrameworkBadge :framework="port.framework" :port="port" />
     </div>
-    <div class="text-[13px] text-fg-muted">{{ memory }}</div>
+    <div class="flex items-center gap-2.5 text-[13px] text-fg-muted">
+      <Sparkline :points="memPoints" label="memory over last 60s" />
+      <span>{{ memory }}</span>
+    </div>
     <div class="text-[13px] text-fg-muted">{{ uptime }}</div>
     <div>
       <StatusDot :status="port.status" />
