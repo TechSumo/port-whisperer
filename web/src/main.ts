@@ -11,3 +11,16 @@ document.documentElement.classList.add("dark");
 const app = createApp(App);
 app.use(createPinia());
 app.mount("#app");
+
+// Register the service worker so the browser treats the dashboard as
+// an installable PWA. The SW itself is a minimal passthrough — its
+// only job is to satisfy Chrome/Edge's install criteria.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("/sw.js", { scope: "/" })
+      .catch((err) => {
+        console.warn("[sw] registration failed:", err);
+      });
+  });
+}

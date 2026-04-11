@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="port-whisperer ports console">
+  <!-- Background tile. Mark sits within the inner ~80% safe zone so the
+       same file works for both "any" and "maskable" icon purposes. -->
+  <rect width="512" height="512" rx="96" ry="96" fill="#060a06"/>
+
+  <!-- Subtle phosphor glow under the mark (matches the CSS .glow rule). -->
+  <g filter="url(#phosphor-glow)">
+    <!-- > chevron -->
+    <path d="M150 180 L256 256 L150 332"
+          stroke="#3aff8a"
+          stroke-width="40"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+    <!-- _ underscore -->
+    <rect x="280" y="322" width="120" height="22" rx="4" ry="4" fill="#3aff8a"/>
+  </g>
+
+  <defs>
+    <filter id="phosphor-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+</svg>

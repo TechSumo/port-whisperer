@@ -1,0 +1,22 @@
+{
+  "name": "port-whisperer — Ports Console",
+  "short_name": "ports",
+  "description": "Live dashboard for processes listening on local ports. Kill, restart, probe frameworks, filter by project, all keyboard-driven.",
+  "id": "/?pwa",
+  "start_url": "/?pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "any",
+  "background_color": "#060a06",
+  "theme_color": "#3aff8a",
+  "categories": ["developer", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -228,14 +228,25 @@ export function buildApp(port) {
   // If web/dist doesn't exist yet (e.g. developer forgot `npm run web:build`),
   // serve a helpful placeholder instead of a 404.
   if (existsSync(WEB_DIST)) {
+    // PWA manifest needs the right Content-Type; some static file servers
+    // don't know the `.webmanifest` extension. Serve it explicitly.
+    app.get("/manifest.webmanifest", async (c) => {
+      try {
+        const { readFile } = await import("node:fs/promises");
+        const body = await readFile(`${WEB_DIST}/manifest.webmanifest`, "utf8");
+        return c.body(body, 200, {
+          "content-type": "application/manifest+json; charset=utf-8",
+          "cache-control": "no-cache",
+        });
+      } catch {
+        return c.notFound();
+      }
+    });
+
     app.use(
       "/*",
       serveStatic({
         root: WEB_DIST,
-        // serveStatic uses paths relative to cwd. We pass the absolute root
-        // by overriding getContent with a custom loader below when needed;
-        // for now the root-relative default works because we resolve from
-        // the repo root in practice.
       }),
     );
     app.get("/", serveStatic({ path: `${WEB_DIST}/index.html` }));
