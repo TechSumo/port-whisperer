@@ -46,6 +46,7 @@ function signature(info) {
     info.uptime ?? "",
     info.framework ?? "",
     info.processName,
+    info.gitBranch ?? "",
   ].join("|");
 }
 
@@ -77,7 +78,11 @@ export function computeDiff(prev, next) {
 async function tick() {
   if (state.subscribers.size === 0) return;
   try {
-    const fresh = await getListeningPorts();
+    // gitBranches: true → scanner uses its lazy async cache. First
+    // tick returns null branches (cache cold), subsequent ticks pick
+    // up the populated values and the diff below will emit `update`
+    // events so the frontend rerenders with the new branch.
+    const fresh = await getListeningPorts({ gitBranches: true });
     const nextMap = new Map(fresh.map((p) => [p.port, p]));
     const events = computeDiff(state.previousSnapshot, nextMap);
     state.previousSnapshot = nextMap;
@@ -132,7 +137,7 @@ export async function subscribe(send) {
   // diff baseline is correct for everyone.
   if (state.previousSnapshot.size === 0) {
     try {
-      const initial = await getListeningPorts();
+      const initial = await getListeningPorts({ gitBranches: true });
       state.previousSnapshot = new Map(initial.map((p) => [p.port, p]));
     } catch (err) {
       console.error("[sse] initial snapshot failed:", err);

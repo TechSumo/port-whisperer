@@ -167,7 +167,22 @@
     transform: translate(0, -50%);
   }
 
-  /* Keyboard-focused row: persistent hover look + a left accent rail. */
+  /* Workspace rows (cwd under ~/Desktop/_GITHUB/): subtle phosphor tint
+   * + brighter text + a thin accent rail so they pop above the rest
+   * of the table without fighting the overall palette. */
+  .row.row-workspace {
+    background: rgb(var(--accent) / 0.04);
+    box-shadow: inset 2px 0 0 rgb(var(--accent) / 0.55);
+  }
+  .row.row-workspace > * {
+    color: rgb(var(--fg) / 1);
+  }
+  .row.row-workspace:hover {
+    background: rgb(var(--accent) / 0.07);
+  }
+
+  /* Keyboard-focused row: persistent hover look + a left accent rail.
+   * Wins over row-workspace when both apply. */
   .row.row-focused {
     background: rgb(var(--bg-elevated) / 0.9);
     box-shadow: inset 2px 0 0 rgb(var(--accent) / 1);

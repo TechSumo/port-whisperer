@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, computed, readonly } from "vue";
 import type { PortInfo, ProcessInfo } from "@/types/api";
+import { deriveRepoFolder } from "@/lib/paths";
 
 // Central store for port + process snapshots.
 //
@@ -552,7 +553,7 @@ export const usePortsStore = defineStore("ports", () => {
 
   const filteredPorts = computed<PortInfo[]>(() => {
     const q = searchQuery.value.trim().toLowerCase();
-    return ports.value.filter((p) => {
+    const filtered = ports.value.filter((p) => {
       if (selectedFrameworks.value.size > 0) {
         if (!p.framework || !selectedFrameworks.value.has(p.framework)) {
           return false;
@@ -570,6 +571,16 @@ export const usePortsStore = defineStore("ports", () => {
         .join(" ")
         .toLowerCase();
       return haystack.includes(q);
+    });
+
+    // Workspace rows (cwd under ~/Desktop/_GITHUB/ and the like) sort
+    // to the top, preserving port order within each group. This is a
+    // stable client-side re-sort over the server's ascending list.
+    return filtered.slice().sort((a, b) => {
+      const aws = deriveRepoFolder(a.cwd) ? 0 : 1;
+      const bws = deriveRepoFolder(b.cwd) ? 0 : 1;
+      if (aws !== bws) return aws - bws;
+      return a.port - b.port;
     });
   });
 

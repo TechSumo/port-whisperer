@@ -1,7 +1,67 @@
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { join, dirname, basename } from "path";
 import { getPlatform } from "./platform/index.js";
+
+/**
+ * Lazy, async-refreshing cache for `git rev-parse --abbrev-ref HEAD`.
+ *
+ * Rationale: running git for every listening port on every SSE tick
+ * would block the poll loop for hundreds of milliseconds on a busy
+ * machine. This cache does two things:
+ *   - Return the last-known value (or null) synchronously so callers
+ *     never block on git
+ *   - Kick off an async refresh in the background whenever the entry
+ *     is missing or stale, so the NEXT poll picks up the fresh value
+ *
+ * TTL is 30 seconds — branch switches are rare enough that a half-
+ * minute window is invisible in practice, and common enough that we
+ * pick them up without a server restart.
+ *
+ * Uses execFileSync with an argv array (no shell) to avoid any
+ * interpolation concern on cwd values containing shell metacharacters.
+ */
+const gitBranchCache = new Map();
+const GIT_BRANCH_TTL_MS = 30_000;
+
+function lazyCachedGitBranch(cwd) {
+  if (!cwd) return null;
+  const now = Date.now();
+  const cached = gitBranchCache.get(cwd);
+  const fresh = cached && cached.expires > now;
+
+  if (!fresh && !(cached && cached.refreshing)) {
+    // Mark as refreshing so overlapping polls don't spawn duplicate gits.
+    gitBranchCache.set(cwd, {
+      branch: cached?.branch ?? null,
+      expires: cached?.expires ?? 0,
+      refreshing: true,
+    });
+    setImmediate(() => {
+      let branch = null;
+      try {
+        const out = execFileSync(
+          "git",
+          ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
+          {
+            encoding: "utf8",
+            timeout: 500,
+            stdio: ["ignore", "pipe", "ignore"],
+          },
+        );
+        const trimmed = out.trim();
+        branch = trimmed && trimmed !== "HEAD" ? trimmed : null;
+      } catch {}
+      gitBranchCache.set(cwd, {
+        branch,
+        expires: Date.now() + GIT_BRANCH_TTL_MS,
+        refreshing: false,
+      });
+    });
+  }
+
+  return cached?.branch ?? null;
+}
 
 /**
  * Batch-fetch docker container info mapped by host port.
@@ -39,7 +99,23 @@ function batchDockerInfo() {
 /**
  * Get all listening ports with enriched process info.
  */
-export async function getListeningPorts(detailed = false) {
+/**
+ * @param {boolean | { detailed?: boolean; gitBranches?: boolean }} options
+ *   - `true` or `{detailed: true}` enables the expensive process-tree walk
+ *     AND git branch lookup (eager, blocking on the first call)
+ *   - `{gitBranches: true}` enables just the lazy async git branch cache —
+ *     the first poll returns null branches, subsequent polls return the
+ *     cached values as they populate in the background
+ *   - `false` (default) is the cheapest path — no git, no process tree
+ */
+export async function getListeningPorts(options = false) {
+  const opts =
+    typeof options === "boolean"
+      ? { detailed: options }
+      : options || {};
+  const detailed = opts.detailed === true;
+  const gitBranches = opts.gitBranches === true;
+
   const platform = await getPlatform();
   const entries = platform.getListeningPortsRaw();
 
@@ -105,13 +181,8 @@ export async function getListeningPorts(detailed = false) {
       info.projectName = basename(projectRoot);
       info.framework = info.framework || detectFramework(projectRoot);
 
-      if (detailed) {
-        try {
-          info.gitBranch = execSync(
-            `git -C "${info.cwd}" rev-parse --abbrev-ref HEAD 2>/dev/null`,
-            { encoding: "utf8", timeout: 3000 },
-          ).trim();
-        } catch {}
+      if (detailed || gitBranches) {
+        info.gitBranch = lazyCachedGitBranch(projectRoot);
       }
     }
 

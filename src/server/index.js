@@ -77,8 +77,10 @@ export function buildApp(port) {
   app.use("*", originGuard(ownOrigin));
 
   // Phase 2 — snapshot endpoints. Reuse scanner.js verbatim.
+  // gitBranches: true shares the lazy-async cache with the SSE poll
+  // loop, so both paths benefit from (and populate) the same store.
   app.get("/api/ports", async (c) => {
-    const ports = await getListeningPorts();
+    const ports = await getListeningPorts({ gitBranches: true });
     return c.json(ports);
   });
 

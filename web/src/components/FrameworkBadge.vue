@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import type { PortInfo } from "@/types/api";
 import { usePortsStore } from "@/stores/ports";
+import FrameworkIcon from "./FrameworkIcon.vue";
 
 const props = defineProps<{
   framework: string | null | undefined;
@@ -77,13 +78,14 @@ function onProbe(): void {
 <template>
   <span
     v-if="effective"
-    class="inline-flex items-center border px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.1em]"
+    class="inline-flex items-center gap-1.5 border px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.1em]"
     :class="{
       'border-accent/60 bg-accent/10 text-accent glow': intensity === 'strong',
       'border-accent/30 text-fg-muted': intensity === 'medium',
       'border-border text-fg-subtle': intensity === 'subtle',
     }"
   >
+    <FrameworkIcon :framework="effective" :size="11" />
     {{ effective }}
   </span>
 
